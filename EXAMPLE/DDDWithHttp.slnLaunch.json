@@ -1,0 +1,17 @@
+[
+  {
+    "Name": "Apolices.Api e Sinistros.Api",
+    "Projects": [
+      {
+        "Path": "src\\Apolices.Api\\Apolices.Api.csproj",
+        "Action": "Start",
+        "DebugTarget": "http"
+      },
+      {
+        "Path": "src\\Sinistros.Api\\Sinistros.Api.csproj",
+        "Action": "Start",
+        "DebugTarget": "http"
+      }
+    ]
+  }
+]

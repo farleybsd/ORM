@@ -1,0 +1,127 @@
+openapi: 3.1.1
+info:
+  title: Apolices API
+  summary: Consulta de apólices de seguro
+  version: "1.0.0"
+  description: >-
+    Binding HTTP do endpoint type MDSL `ApoliceInformationHolder`
+    (padrão Information Holder Resource, especialização Master Data Holder).
+    Ambas as operações seguem o padrão Retrieval Operation.
+servers:
+  - url: https://apolices.exemplo.com.br
+
+paths:
+  /apolices:
+    get:
+      operationId: listarApolices
+      summary: Lista todas as apólices
+      description: Retrieval Operation sobre o Information Holder Resource.
+      tags: [Apolices]
+      responses:
+        "200":
+          description: Coleção de apólices (Atomic Parameter List de Parameter Trees)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Apolice"
+
+  /apolices/{id}:
+    get:
+      operationId: consultarApolice
+      summary: Consulta uma apólice pelo id
+      description: Retrieval Operation identificada por um ID Element.
+      tags: [Apolices]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: ID Element da apólice
+      responses:
+        "200":
+          description: Apólice encontrada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Apolice"
+        "404":
+          description: Apólice não encontrada (code apolice-nao-encontrada) — RFC 9457
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+components:
+  schemas:
+    ProblemDetails:
+      type: object
+      description: Error Report no formato RFC 9457 (application/problem+json).
+      properties:
+        type: { type: string, format: uri, example: "https://seguros.example/problemas/apolice-nao-encontrada" }
+        title: { type: string, example: "Apólice não encontrada" }
+        status: { type: integer, example: 404 }
+        detail: { type: string }
+        instance: { type: string }
+        code: { type: string, example: apolice-nao-encontrada }
+        traceId: { type: string }
+      required: [type, title, status, code]
+      additionalProperties: true
+    Apolice:
+      type: object
+      description: Parameter Tree raiz do Information Holder Resource (Master Data Holder).
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID Element
+        numero:
+          type: string
+          description: Atomic Parameter — chave de negócio da apólice
+        segurado:
+          $ref: "#/components/schemas/Segurado"
+        vigencia:
+          $ref: "#/components/schemas/Vigencia"
+        coberturas:
+          type: array
+          description: Atomic Parameter List de Parameter Trees
+          items:
+            $ref: "#/components/schemas/Cobertura"
+      required: [id, numero, segurado, vigencia, coberturas]
+
+    Segurado:
+      type: object
+      description: Parameter Tree
+      properties:
+        nome:
+          type: string
+        documento:
+          type: string
+      required: [nome, documento]
+
+    Vigencia:
+      type: object
+      description: Parameter Tree
+      properties:
+        inicio:
+          type: string
+          format: date
+        fim:
+          type: string
+          format: date
+      required: [inicio, fim]
+
+    Cobertura:
+      type: object
+      description: Parameter Tree
+      properties:
+        tipo:
+          type: string
+          enum: [Colisao, Roubo, Incendio, DanosTerceiros]
+        limiteIndenizacao:
+          type: number
+          format: double
+      required: [tipo, limiteIndenizacao]

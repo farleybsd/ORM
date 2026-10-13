@@ -1,0 +1,262 @@
+openapi: 3.1.1
+info:
+  title: Sinistros API
+  summary: Registro e consulta de sinistros, com resolução da apólice vinculada
+  version: "1.0.0"
+  description: >-
+    Binding HTTP dos endpoint types MDSL `SinistroActivityLog` (Information
+    Holder Resource, especialização Activity Log Resource) e
+    `SinistroApoliceLinkLookup` (Link Lookup Resource), que consome a
+    `ApoliceInformationHolder` da API de Apólices.
+servers:
+  - url: https://sinistros.exemplo.com.br
+
+paths:
+  /sinistros:
+    post:
+      operationId: registrarSinistro
+      summary: Registra um novo sinistro
+      description: State Creation Operation sobre o Activity Log Resource.
+      tags: [Sinistros]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NovoSinistro"
+      responses:
+        "201":
+          description: Sinistro registrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sinistro"
+        "404":
+          description: Apólice referenciada (Link Element) não encontrada — Error Report
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "422":
+          description: Apólice não vigente ou sem a cobertura solicitada — Error Report
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "503":
+          description: API de Apólices indisponível — Error Report
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /sinistros/{id}:
+    get:
+      operationId: consultarSinistro
+      summary: Consulta um sinistro pelo id
+      description: Retrieval Operation identificada por um ID Element.
+      tags: [Sinistros]
+      parameters:
+        - $ref: "#/components/parameters/SinistroId"
+      responses:
+        "200":
+          description: Sinistro encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sinistro"
+        "404":
+          description: Sinistro não encontrado
+
+  /apolices/{apoliceId}/sinistros:
+    get:
+      operationId: listarSinistrosPorApolice
+      summary: Lista os sinistros de uma apólice
+      description: Retrieval Operation filtrada por um Link Element (apoliceId).
+      tags: [Sinistros]
+      parameters:
+        - name: apoliceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Link Element — referência à ApoliceInformationHolder
+      responses:
+        "200":
+          description: Coleção de sinistros da apólice
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Sinistro"
+
+  /sinistros/{id}/apolice:
+    get:
+      operationId: consultarApoliceDoSinistro
+      summary: Resolve a apólice vinculada a um sinistro
+      description: >-
+        Retrieval Operation do Link Lookup Resource. Internamente encaminha
+        para a operação consultarApolice da API de Apólices (chamada
+        backend-to-backend) e traduz o resultado para o vocabulário de
+        Sinistros — os dois últimos campos são conclusões do domínio local,
+        não vêm prontos da API externa.
+      tags: [Sinistros]
+      parameters:
+        - $ref: "#/components/parameters/SinistroId"
+      responses:
+        "200":
+          description: Dados da apólice vinculada, já traduzidos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApoliceDoSinistro"
+        "404":
+          description: Sinistro ou apólice vinculada não encontrados — Error Report
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "503":
+          description: API de Apólices indisponível — Error Report
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+components:
+  parameters:
+    SinistroId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: ID Element
+
+  schemas:
+    NovoSinistro:
+      type: object
+      description: Parameter Tree de entrada da State Creation Operation.
+      properties:
+        apoliceId:
+          type: string
+          format: uuid
+          description: Link Element para ApoliceInformationHolder
+        dataOcorrencia:
+          type: string
+          format: date
+        tipoCobertura:
+          type: string
+          enum: [Colisao, Roubo, Incendio, DanosTerceiros]
+        descricao:
+          type: string
+          maxLength: 500
+      required: [apoliceId, dataOcorrencia, tipoCobertura, descricao]
+
+    Sinistro:
+      type: object
+      description: Parameter Tree raiz do Activity Log Resource.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID Element
+        apoliceId:
+          type: string
+          format: uuid
+          description: Link Element
+        dataOcorrencia:
+          type: string
+          format: date
+        tipoCobertura:
+          type: string
+          enum: [Colisao, Roubo, Incendio, DanosTerceiros]
+        descricao:
+          type: string
+        status:
+          type: string
+          enum: [Registrado]
+        dataRegistro:
+          type: string
+          format: date-time
+          description: Metadata Element — timestamp de auditoria atribuído pelo servidor
+      required:
+        [id, apoliceId, dataOcorrencia, tipoCobertura, descricao, status, dataRegistro]
+
+    ApoliceDoSinistro:
+      type: object
+      description: Parameter Tree devolvido pelo Link Lookup Resource.
+      properties:
+        sinistroId:
+          type: string
+          format: uuid
+        apoliceId:
+          type: string
+          format: uuid
+          description: Link Element
+        dataOcorrencia:
+          type: string
+          format: date
+        tipoCobertura:
+          type: string
+        vigenciaInicio:
+          type: string
+          format: date
+        vigenciaFim:
+          type: string
+          format: date
+        coberturas:
+          type: array
+          items:
+            type: string
+        vigenteNaDataOcorrencia:
+          type: boolean
+          description: Conclusão do domínio de Sinistros (não vem da API de Apólices)
+        possuiCoberturaDoSinistro:
+          type: boolean
+          description: Conclusão do domínio de Sinistros (não vem da API de Apólices)
+      required:
+        - sinistroId
+        - apoliceId
+        - dataOcorrencia
+        - tipoCobertura
+        - vigenciaInicio
+        - vigenciaFim
+        - coberturas
+        - vigenteNaDataOcorrencia
+        - possuiCoberturaDoSinistro
+
+    ProblemDetails:
+      type: object
+      description: >
+        Error Report no formato RFC 9457 (Problem Details for HTTP APIs), servido como
+        application/problem+json. `type` e `code` são estáveis e identificam a classe do erro;
+        `title` é fixo por tipo; `detail` é texto para humanos e pode mudar. Dados da ocorrência
+        (ex.: apoliceId, tipoCobertura) vêm como extensões estruturadas.
+      properties:
+        type:
+          type: string
+          format: uri
+          example: https://seguros.example/problemas/cobertura-nao-contratada
+        title:
+          type: string
+          example: Cobertura não contratada
+        status:
+          type: integer
+          example: 422
+        detail:
+          type: string
+          example: A apólice não possui a cobertura 'Roubo'.
+        instance:
+          type: string
+          example: /sinistros
+        code:
+          type: string
+          example: cobertura-nao-contratada
+        traceId:
+          type: string
+      required: [type, title, status, code]
+      additionalProperties: true

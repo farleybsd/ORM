@@ -1,0 +1,75 @@
+@baseUrl = http://localhost:5301
+
+### Registrar sinistro com sucesso (AP-0001: vigente, com cobertura de Colisão) -> 201
+POST {{baseUrl}}/sinistros
+Content-Type: application/json
+
+{
+  "apoliceId": "11111111-1111-1111-1111-111111111111",
+  "dataOcorrencia": "2026-06-01",
+  "tipoCobertura": "Colisao",
+  "descricao": "Colisão na Av. Paulista"
+}
+
+### Registrar sinistro para apólice inexistente -> 404
+POST {{baseUrl}}/sinistros
+Content-Type: application/json
+
+{
+  "apoliceId": "99999999-9999-9999-9999-999999999999",
+  "dataOcorrencia": "2026-06-01",
+  "tipoCobertura": "Colisao",
+  "descricao": "Apólice não existe"
+}
+
+### Registrar sinistro fora do período de vigência (AP-0002 expirou em 2024) -> 422
+POST {{baseUrl}}/sinistros
+Content-Type: application/json
+
+{
+  "apoliceId": "22222222-2222-2222-2222-222222222222",
+  "dataOcorrencia": "2026-06-01",
+  "tipoCobertura": "Colisao",
+  "descricao": "Apólice expirada na data da ocorrência"
+}
+
+### Registrar sinistro com cobertura não contratada (AP-0003 não tem Roubo) -> 422
+POST {{baseUrl}}/sinistros
+Content-Type: application/json
+
+{
+  "apoliceId": "33333333-3333-3333-3333-333333333333",
+  "dataOcorrencia": "2026-06-15",
+  "tipoCobertura": "Roubo",
+  "descricao": "Furto do veículo"
+}
+
+### Consultar um sinistro (substitua {id} pelo retornado pela requisição de sucesso acima)
+GET {{baseUrl}}/sinistros/00000000-0000-0000-0000-000000000000
+
+### Listar sinistros vinculados a uma apólice
+GET {{baseUrl}}/apolices/11111111-1111-1111-1111-111111111111/sinistros
+
+### Consultar a apólice vinculada a um sinistro (consulta ao vivo a API de Apólices via HTTP)
+### Substitua {id} pelo identificador retornado pela requisição de sucesso acima.
+GET {{baseUrl}}/sinistros/00000000-0000-0000-0000-000000000000/apolice
+
+### Consultar a apólice de um sinistro inexistente -> 404
+GET {{baseUrl}}/sinistros/99999999-9999-9999-9999-999999999999/apolice
+
+### --- Demonstração manual de resiliência ---
+### 1. Pare a API de Apólices (Ctrl+C no terminal onde ela roda).
+### 2. Reenvie a requisição de sucesso abaixo e observe no console da API de Sinistros os logs de
+###    retry (Polly "OnRetry") e, ao final, a resposta 503 sem o sinistro ser registrado.
+### 3. Repita a requisição algumas vezes seguidas: após ultrapassar o limiar de falhas
+###    configurado (ApolicesApi:CircuitBreaker), o log passará a mostrar "OnCircuitOpened" e as
+###    respostas 503 passarão a ser praticamente instantâneas (sem novas tentativas de rede).
+POST {{baseUrl}}/sinistros
+Content-Type: application/json
+
+{
+  "apoliceId": "11111111-1111-1111-1111-111111111111",
+  "dataOcorrencia": "2026-06-01",
+  "tipoCobertura": "Colisao",
+  "descricao": "Teste de resiliência com a API de Apólices indisponível"
+}

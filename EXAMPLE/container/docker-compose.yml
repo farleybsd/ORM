@@ -1,0 +1,79 @@
+# Sobe os dois bancos usados pelas APIs (Apólices e Sinistros):
+#   docker compose up -d          (dentro da pasta container)
+#   docker compose down -v        (derruba e apaga os dados)
+#
+# Cada serviço tem o seu próprio banco (database per service):
+#   apolices  -> usado pela Apolices.Api
+#   sinistros -> usado pela Sinistros.Api
+# Os dois bancos existem nos dois servidores, então qualquer API pode usar
+# Postgres e SQL Server ao mesmo tempo (veja a seção "Orm" do appsettings.json).
+name: seguros
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: seguros-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-seguros}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-Seguros@2026}
+      POSTGRES_DB: postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Executado só na primeira subida (volume vazio)
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # -h 127.0.0.1: durante o init o Postgres só escuta no socket local,
+      # então o healthcheck só passa quando os scripts terminaram.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d sinistros"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: seguros-sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-Seguros@2026}
+    ports:
+      - "${MSSQL_PORT:-1433}:1433"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -C -b -Q \"SELECT 1\" -o /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  # O SQL Server não tem pasta de init como o Postgres: este container roda os
+  # scripts com sqlcmd assim que o servidor fica saudável e depois termina.
+  # Os scripts são idempotentes, então rodar de novo a cada "up" é seguro.
+  sqlserver-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: seguros-sqlserver-init
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-Seguros@2026}
+    volumes:
+      - ./sqlserver/init:/scripts:ro
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        for f in /scripts/*.sql; do
+          echo "Executando $$f"
+          /opt/mssql-tools18/bin/sqlcmd -S sqlserver -U sa -P "$$MSSQL_SA_PASSWORD" -C -b -i "$$f" || exit 1
+        done
+    restart: "no"
+
+volumes:
+  postgres-data:
+  sqlserver-data:

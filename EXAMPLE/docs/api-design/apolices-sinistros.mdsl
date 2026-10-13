@@ -1,0 +1,139 @@
+API description ApolicesESinistrosAPIs
+
+// ============================================================================
+// Bounded context: Apolices (Policies) — API provedora (upstream)
+// ============================================================================
+
+data type ApoliceId ID<UUID>
+data type SinistroId ID<UUID>
+
+data type Segurado P
+  "nome": D<string>,
+  "documento": D<string>
+
+data type Vigencia P
+  "inicio": D<date>,
+  "fim": D<date>
+
+data type TipoCobertura D<string> // enum: COLISAO | ROUBO | INCENDIO | DANOS_TERCEIROS
+
+data type Cobertura P
+  "tipo": TipoCobertura,
+  "limiteIndenizacao": D<decimal>
+
+data type Apolice P
+  "id": ApoliceId,                // ID Element
+  "numero": D<string>,            // Atomic Parameter (chave de negócio)
+  "segurado": Segurado,           // Parameter Tree
+  "vigencia": Vigencia,           // Parameter Tree
+  "coberturas": Cobertura*        // Atomic Parameter List de Parameter Trees
+
+data type ErrorReport P
+  "mensagem": D<string>
+
+endpoint type ApoliceInformationHolder
+  serves as INFORMATION_HOLDER_RESOURCE       // especialização: MASTER_DATA_HOLDER
+  exposes
+    operation consultarApolice
+      with responsibility RETRIEVAL_OPERATION
+      expecting
+        payload ApoliceId                     // ID Element como único input
+      delivering
+        payload Apolice
+        // ausência de representação (não encontrado) tratada no binding HTTP
+
+    operation listarApolices
+      with responsibility RETRIEVAL_OPERATION
+      expecting
+        payload void
+        // hoje devolve a coleção inteira; PAGINATION_PARAMETERS seria a
+        // evolução natural se o catálogo crescer (ainda não implementado)
+      delivering
+        payload Apolice*
+
+
+// ============================================================================
+// Bounded context: Sinistros (Claims) — API consumidora de ApoliceInformationHolder
+// ============================================================================
+
+data type Descricao D<string>        // Atomic Parameter (regra de negócio: máx. 500 chars)
+
+data type NovoSinistro P
+  "apoliceId": ApoliceId,            // Link Element para ApoliceInformationHolder
+  "dataOcorrencia": D<date>,
+  "tipoCobertura": TipoCobertura,
+  "descricao": Descricao
+
+data type Sinistro P
+  "id": SinistroId,                  // ID Element
+  "apoliceId": ApoliceId,            // Link Element
+  "dataOcorrencia": D<date>,
+  "tipoCobertura": TipoCobertura,
+  "descricao": Descricao,
+  "status": D<string>,               // enum: REGISTRADO
+  "dataRegistro": MD<dateTime>       // Metadata Element (timestamp atribuído pelo servidor)
+
+data type ApoliceDoSinistro P
+  "sinistroId": SinistroId,
+  "apoliceId": ApoliceId,            // Link Element resolvido via ApoliceInformationHolder
+  "dataOcorrencia": D<date>,
+  "tipoCobertura": TipoCobertura,
+  "vigenciaInicio": D<date>,
+  "vigenciaFim": D<date>,
+  "coberturas": D<string>*,
+  "vigenteNaDataOcorrencia": D<boolean>,     // conclusão do domínio de Sinistros
+  "possuiCoberturaDoSinistro": D<boolean>    // idem — não vem pronto da API externa
+
+endpoint type SinistroActivityLog
+  serves as INFORMATION_HOLDER_RESOURCE      // especialização: ACTIVITY_LOG_RESOURCE
+  exposes
+    operation registrarSinistro
+      with responsibility STATE_CREATION_OPERATION
+      expecting
+        payload NovoSinistro
+      delivering
+        payload Sinistro
+        // falha: ErrorReport (422 apólice inválida | 404 apólice não encontrada | 503 indisponível)
+
+    operation consultarSinistro
+      with responsibility RETRIEVAL_OPERATION
+      expecting
+        payload SinistroId
+      delivering
+        payload Sinistro
+
+    operation listarSinistrosPorApolice
+      with responsibility RETRIEVAL_OPERATION
+      expecting
+        payload ApoliceId                    // Link Element usado como filtro
+      delivering
+        payload Sinistro*
+
+endpoint type SinistroApoliceLinkLookup
+  serves as LINK_LOOKUP_RESOURCE             // resolve a referência cruzada mantida por um Sinistro
+  exposes
+    operation consultarApoliceDoSinistro
+      with responsibility RETRIEVAL_OPERATION
+      expecting
+        payload SinistroId
+      delivering
+        payload ApoliceDoSinistro
+        // internamente delega para ApoliceInformationHolder.consultarApolice
+        // (chamada backend-to-backend), sem expor esse detalhe ao cliente
+
+
+// ============================================================================
+// Providers/clients — propositalmente sem vínculo a protocolo aqui.
+// O binding HTTP de cada API é expresso separadamente em OpenAPI 3.1
+// (apolices-openapi.yaml e sinistros-openapi.yaml).
+// ============================================================================
+
+API provider ApolicesAPI
+  offers ApoliceInformationHolder
+
+API provider SinistrosAPI
+  offers SinistroActivityLog
+  offers SinistroApoliceLinkLookup
+
+API client SinistrosComoClienteDeApolices
+  consumes ApoliceInformationHolder

@@ -16,12 +16,24 @@ public static class ConfiguracaoOrm
     // Busca a connection string obrigatória e explica o erro se ela não existir
     public static string GetConnectionString(string name = "DefaultConnection")
     {
-        if (_config is null)
-            throw new InvalidOperationException(
-                "ConfiguracaoOrm não foi carregada. Chame ConfiguracaoOrm.Load() no Program.cs");
-
-        return _config.GetConnectionString(name)
+        return Config().GetConnectionString(name)
             ?? throw new InvalidOperationException(
                 $"A connection string '{name}' não foi encontrada. Confira o appsettings.json");
+    }
+
+    // Busca o nome da classe do driver (ex.: "Postgres") na seção "Orm" do appsettings
+    public static string GetDriver()
+    {
+        return Config()["Orm:Driver"]
+            ?? throw new InvalidOperationException(
+                "O driver do ORM não foi encontrado. Confira 'Orm:Driver' no appsettings.json");
+    }
+
+    // Garante que o Load foi chamado antes de qualquer leitura
+    private static IConfiguration Config()
+    {
+        return _config
+            ?? throw new InvalidOperationException(
+                "ConfiguracaoOrm não foi carregada. Chame ConfiguracaoOrm.Load() no Program.cs");
     }
 }

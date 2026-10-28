@@ -8,11 +8,11 @@ public class Orm : IOrm
 
     public Orm()
     {
-        string name = ConfiguracaoOrm.GetConnectionString();
+        string name = ConfiguracaoOrm.GetDriver();               // ex.: "Postgres"
         Type? type = Type.GetType($"My_Orm_Data_Access.Driver.{name}");
         if (type == null)
             throw new InvalidOperationException(
-                $"Driver '{name}' não encontrado. Confira ORM_DRIVER no .env " +
+                $"Driver '{name}' não encontrado. Confira 'Orm:Driver' no appsettings.json " +
                 "(maiúsculas e minúsculas fazem diferença: Postgres, não postgres).");
 
         if (!typeof(IOrm).IsAssignableFrom(type))

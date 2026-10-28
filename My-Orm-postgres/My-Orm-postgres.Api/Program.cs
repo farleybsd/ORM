@@ -1,4 +1,8 @@
+using My_Orm_Data_Access.Core;
+
 var builder = WebApplication.CreateBuilder(args);
+
+ConfiguracaoOrm.Load(builder.Configuration); // entrega o appsettings para o ORM
 
 // Add services to the container.
 

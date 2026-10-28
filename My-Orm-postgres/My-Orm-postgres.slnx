@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="My-Orm-Data-Access/My-Orm-Data-Access.csproj" />
+    <Project Path="My-Orm-postgres.Api/My-Orm-postgres.Api.csproj" />
+  </Folder>
+</Solution>

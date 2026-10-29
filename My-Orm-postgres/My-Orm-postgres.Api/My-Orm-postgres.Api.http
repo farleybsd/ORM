@@ -1,6 +1,66 @@
-@My_Orm_postgres.Api_HostAddress = http://localhost:5101
+@baseUrl = http://localhost:5101
 
-GET {{My_Orm_postgres.Api_HostAddress}}/weatherforecast/
-Accept: application/json
+### Cadastrar cliente -> 201
+POST {{baseUrl}}/clientes
+Content-Type: application/json
 
-###
+{
+  "nome": "Ana Souza",
+  "email": "ana@loja.com",
+  "ativo": true
+}
+
+### Cadastrar cliente com e-mail repetido -> 409 (cliente-email-ja-cadastrado)
+POST {{baseUrl}}/clientes
+Content-Type: application/json
+
+{
+  "nome": "Outra Ana",
+  "email": "ana@loja.com"
+}
+
+### Cadastrar cliente com campos inválidos -> 400 (validacao)
+POST {{baseUrl}}/clientes
+Content-Type: application/json
+
+{
+  "nome": "",
+  "email": "isso-nao-e-email"
+}
+
+### Listar clientes -> 200
+GET {{baseUrl}}/clientes
+
+### Consultar cliente -> 200 (guarde a "versao" para o PUT)
+GET {{baseUrl}}/clientes/1
+
+### Consultar cliente inexistente -> 404 (cliente-nao-encontrado)
+GET {{baseUrl}}/clientes/999999
+
+### Atualizar cliente -> 200 (troque a versao pela recebida no GET)
+PUT {{baseUrl}}/clientes/1
+Content-Type: application/json
+
+{
+  "nome": "Ana Souza Lima",
+  "email": "ana@loja.com",
+  "ativo": true,
+  "versao": 1761750000000
+}
+
+### Atualizar com versão antiga -> 409 (cliente-versao-desatualizada)
+PUT {{baseUrl}}/clientes/1
+Content-Type: application/json
+
+{
+  "nome": "Ana",
+  "email": "ana@loja.com",
+  "ativo": false,
+  "versao": 1
+}
+
+### Excluir cliente -> 204
+DELETE {{baseUrl}}/clientes/1
+
+### Excluir cliente inexistente -> 404 (cliente-nao-encontrado)
+DELETE {{baseUrl}}/clientes/999999

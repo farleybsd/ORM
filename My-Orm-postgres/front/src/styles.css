@@ -1,0 +1,12 @@
+/* A camada do PrimeNG fica depois de theme/base e antes de components/utilities do Tailwind,
+   assim as classes utilitárias conseguem sobrescrever os estilos dos componentes. */
+@layer theme, base, primeng, components, utilities;
+
+@import "tailwindcss";
+@import "tailwindcss-primeui";
+@import "primeicons/primeicons.css";
+
+body {
+  @apply bg-surface-50 text-surface-800 antialiased;
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}

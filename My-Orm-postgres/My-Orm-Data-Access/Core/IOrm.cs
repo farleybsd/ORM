@@ -4,27 +4,20 @@ namespace My_Orm_Data_Access.Core;
 
 public interface IOrm : IDisposable
 {
-    // A porta única: todo SQL passa por aqui
-    void Exec(string sql, string action, Dictionary<string, object?>? args = null);
+    // SQL livre: Query devolve as linhas, Execute devolve quantas linhas foram afetadas
+    DataTable Query(string sql, Dictionary<string, object?>? args = null);
+    long Execute(string sql, Dictionary<string, object?>? args = null);
 
-    // Atalhos de CRUD (montam o SQL e chamam o Exec)
+    // Atalhos de CRUD (montam o SQL e devolvem o resultado na hora)
     DataTable Select(string table, string fields = "*", string where = "",
                      Dictionary<string, object?>? args = null, string order = "");
-    void Insert(string table, Dictionary<string, object?> data);
-    void Update(string table, Dictionary<string, object?> data, string where,
-                Dictionary<string, object?>? args = null);
-    void Delete(string table, string where, Dictionary<string, object?>? args = null);
+    long Insert(string table, Dictionary<string, object?> data);     // id gerado (0 se a tabela não tem "id")
+    long Update(string table, Dictionary<string, object?> data, string where,
+                Dictionary<string, object?>? args = null);           // linhas afetadas
+    long Delete(string table, string where, Dictionary<string, object?>? args = null); // linhas afetadas
 
     // Transação manual
     void BeginTransaction();
     void Commit();
     void Rollback();
-
-    // Estado da última operação
-    string GetStatus();
-    string GetDbError();
-    long GetRowsAffected();
-    long GetGeneratedId();
-    DataTable GetDataTable();
-    string GetLastSqlSentence();
 }

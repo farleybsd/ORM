@@ -49,9 +49,7 @@ namespace My_Orm_Data_Access.Models
 
         public bool LoadQuery(IOrm db, string sql, Dictionary<string, object?>? args = null)
         {
-            db.Exec(sql, "query", args);
-
-            DataTable dt = db.GetDataTable();
+            DataTable dt = db.Query(sql, args);
             if (dt.Rows.Count == 0)
                 return false;
 
@@ -91,9 +89,7 @@ namespace My_Orm_Data_Access.Models
             {
                 data["inserted_at"] = now;
                 data["updated_at"] = now;
-                db.Insert(TableName, data);
-
-                Id = db.GetGeneratedId();
+                Id = db.Insert(TableName, data);
                 InsertedAt = now;
                 UpdatedAt = now;
             }
@@ -101,11 +97,11 @@ namespace My_Orm_Data_Access.Models
             {
                 data["updated_at"] = now;
 
-                db.Update(TableName, data,
+                long rows = db.Update(TableName, data,
                     "id = @id AND updated_at = @old_updated_at",
                     new() { ["id"] = Id, ["old_updated_at"] = UpdatedAt });
 
-                if (db.GetRowsAffected() == 0)
+                if (rows == 0)
                     throw new OrmException(OrmErrorKind.Concurrency,
                         "Este registro foi alterado ou excluído por outro usuário. " +
                         "Recarregue os dados e tente novamente.");

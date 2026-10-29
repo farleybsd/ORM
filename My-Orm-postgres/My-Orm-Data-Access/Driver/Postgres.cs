@@ -1,4 +1,5 @@
-﻿using My_Orm_Data_Access.Core;
+﻿using Microsoft.Extensions.Logging;
+using My_Orm_Data_Access.Core;
 using System.Data.Common;
 using Npgsql;
 namespace My_Orm_Data_Access.Driver;
@@ -7,7 +8,8 @@ public class Postgres : DriverBase
 { 
     private readonly string connectionString;
 
-    public Postgres(string connectionString)
+    public Postgres(string connectionString, ILogger<Postgres>? logger = null)
+        : base(logger)
     {
         this.connectionString = connectionString;
     }
@@ -18,15 +20,18 @@ public class Postgres : DriverBase
     protected override string InsertSql(string table, string fields, string values)
      => $"INSERT INTO {table} ({fields}) VALUES ({values}) RETURNING *";
 
-    protected override void ReadInsertResult(DbCommand cmd)
+    protected override long ExecuteInsert(DbCommand cmd)
     {
-        using (var reader = cmd.ExecuteReader())
-            dataTable.Load(reader);
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read())
+            return 0;
 
-        rowsAffected = dataTable.Rows.Count;
+        // RETURNING * devolve a linha inteira: procura a coluna "id", se existir
+        for (int i = 0; i < reader.FieldCount; i++)
+            if (reader.GetName(i) == "id" && !reader.IsDBNull(i))
+                return Convert.ToInt64(reader.GetValue(i));
 
-        if (rowsAffected > 0 && dataTable.Columns.Contains("id"))
-            generatedId = Convert.ToInt64(dataTable.Rows[0]["id"]);
+        return 0;
     }
 
     protected override OrmException TranslateError(DbException ex)

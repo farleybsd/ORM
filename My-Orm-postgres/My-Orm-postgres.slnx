@@ -3,4 +3,7 @@
     <Project Path="My-Orm-Data-Access/My-Orm-Data-Access.csproj" />
     <Project Path="My-Orm-postgres.Api/My-Orm-postgres.Api.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="My-Orm-postgres.Tests/My-Orm-postgres.Tests.csproj" />
+  </Folder>
 </Solution>

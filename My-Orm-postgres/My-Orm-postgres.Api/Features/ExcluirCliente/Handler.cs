@@ -5,7 +5,7 @@ using My_Orm_postgres.Api.Domain;
 
 namespace My_Orm_postgres.Api.Features.ExcluirCliente;
 
-public sealed class Handler(IOrm db)
+public sealed class Handler(IOrm db, ILogger<Handler> logger)
 {
     public async Task<Result> HandleAsync(long id, CancellationToken cancellationToken)
     {
@@ -16,11 +16,13 @@ public sealed class Handler(IOrm db)
         if (!await cliente.LoadAsync(db, id, cancellationToken))
         {
             await db.RollbackAsync();
+            logger.LogWarning("Exclusão recusada: cliente {ClienteId} não encontrado", id);
             return Result.Failure(ErrosDeCliente.ClienteNaoEncontrado(id));
         }
 
         await cliente.DeleteAsync(db, cancellationToken);
         await db.CommitAsync(cancellationToken);
+        logger.LogInformation("Cliente {ClienteId} excluído ({Email})", id, cliente.Email);
         return Result.Success();
     }
 }

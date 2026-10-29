@@ -88,7 +88,9 @@
           },
           "defaultConfiguration": "development",
           "options": {
-            "proxyConfig": "src/proxy.config.json"
+            "proxyConfig": "src/proxy.config.json",
+            "host": "127.0.0.1",
+            "allowedHosts": ["front.loja.localhost"]
           }
         },
         "test": {

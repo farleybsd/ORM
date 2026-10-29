@@ -15,5 +15,6 @@
 
     <ItemGroup>
       <ProjectReference Include="..\My-Orm-Data-Access\My-Orm-Data-Access.csproj" />
+      <ProjectReference Include="..\My-Orm-postgres.ServiceDefaults\My-Orm-postgres.ServiceDefaults.csproj" />
     </ItemGroup>
 </Project>

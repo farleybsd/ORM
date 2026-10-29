@@ -22,6 +22,7 @@ var api = builder.AddProject<Projects.My_Orm_postgres_Api>("api")
     .WithReference(cache)
     .WaitFor(loja)
     .WaitFor(cache)
+    .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints();
 
 // Angular (ng serve na porta 4200); o proxy.config.json encaminha /api para a API

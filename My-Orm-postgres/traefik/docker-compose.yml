@@ -1,0 +1,14 @@
+services:
+  traefik:
+    image: traefik:v3.5
+    container_name: traefik-loja
+    restart: unless-stopped
+    ports:
+      - "80:80"     # front.loja.localhost / api.loja.localhost
+      - "8080:8080" # painel do Traefik
+    volumes:
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./dynamic:/etc/traefik/dynamic:ro
+    extra_hosts:
+      # No Docker Desktop já existe; no Linux precisa disso para enxergar a máquina host
+      - "host.docker.internal:host-gateway"

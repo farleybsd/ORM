@@ -5,6 +5,9 @@ using My_Orm_postgres.Api.Infrastructure.Erros;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// OpenTelemetry (logs, traces e métricas para o painel do Aspire) e health checks
+builder.AddServiceDefaults();
+
 builder.Services.AddProblemDetailsRfc9457();
 builder.Services.AddFastEndpoints();
 builder.Services.AddSwaggerDocumentation();
@@ -32,6 +35,8 @@ var app = builder.Build();
 app.UseProblemDetailsRfc9457();
 app.UseFastEndpoints(c => c.Errors.UseProblemDetailsRfc9457());
 app.UseSwaggerDocumentation();
+app.MapDefaultEndpoints();
+app.UseStartupBanner();
 
 app.Run();
 

@@ -1,0 +1,20 @@
+# Configuração estática do Traefik
+entryPoints:
+  web:
+    address: ":80"
+
+# Painel em http://localhost:8080 (somente para desenvolvimento)
+api:
+  dashboard: true
+  insecure: true
+
+# As rotas ficam em arquivos, porque o front e a API rodam fora do Docker
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+log:
+  level: INFO
+
+accessLog: {}

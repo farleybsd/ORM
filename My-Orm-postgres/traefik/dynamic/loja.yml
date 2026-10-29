@@ -1,0 +1,25 @@
+# Rotas para as aplicações que rodam na máquina host (aspire run)
+http:
+  routers:
+    front:
+      rule: "Host(`front.loja.localhost`)"
+      entryPoints: [web]
+      service: front
+
+    api:
+      rule: "Host(`api.loja.localhost`)"
+      entryPoints: [web]
+      service: api
+
+  services:
+    # Angular (ng serve) na porta 4200
+    front:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:4200"
+
+    # API C# na porta 5101 (perfil http do launchSettings.json)
+    api:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:5101"

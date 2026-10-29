@@ -6,7 +6,7 @@ using My_Orm_postgres.Api.Domain;
 
 namespace My_Orm_postgres.Api.Features.CriarCliente;
 
-public sealed class Handler(IOrm db)
+public sealed class Handler(IOrm db, ILogger<Handler> logger)
 {
     public async Task<Result<ClienteResponse>> HandleAsync(Request request, CancellationToken cancellationToken)
     {
@@ -26,10 +26,12 @@ public sealed class Handler(IOrm db)
         catch (OrmException ex) when (ex.Kind == OrmErrorKind.Duplicate)
         {
             await db.RollbackAsync();
+            logger.LogWarning("Cadastro recusado: email {Email} já cadastrado", request.Email);
             return ErrosDeCliente.EmailJaCadastrado(request.Email);
         }
 
         await db.CommitAsync(cancellationToken);
+        logger.LogInformation("Cliente {ClienteId} criado: {Nome} <{Email}>", cliente.Id, cliente.Nome, cliente.Email);
         return Result.Success(Mapear(cliente));
     }
 

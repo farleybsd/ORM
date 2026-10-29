@@ -8,8 +8,9 @@ public class Postgres : DriverBase
 { 
     private readonly string connectionString;
 
-    public Postgres(string connectionString, ILogger<Postgres>? logger = null)
-        : base(logger)
+    public Postgres(string connectionString, ILogger<Postgres>? logger = null,
+                    TimeSpan? slowQueryThreshold = null)
+        : base(logger, slowQueryThreshold)
     {
         this.connectionString = connectionString;
     }

@@ -4,6 +4,7 @@ using My_Orm_Data_Access.Core;
 using My_Orm_Data_Access.Mapping;
 using System.Data;
 using System.Data.Common;
+using System.Diagnostics;
 
 namespace My_Orm_Data_Access.Driver;
 
@@ -13,10 +14,12 @@ public abstract class DriverBase : IOrm
     protected DbTransaction? transaction;
 
     private readonly ILogger logger;
+    private readonly TimeSpan slowQueryThreshold;
 
-    protected DriverBase(ILogger? logger)
+    protected DriverBase(ILogger? logger, TimeSpan? slowQueryThreshold = null)
     {
         this.logger = logger ?? NullLogger.Instance;
+        this.slowQueryThreshold = slowQueryThreshold ?? OrmOptions.DefaultSlowQueryThreshold;
     }
 
     // ===== Os buracos que cada banco preenche =====
@@ -272,12 +275,12 @@ public abstract class DriverBase : IOrm
         return name;
     }
 
-    // ===== A porta única: todo SQL passa por aqui (conexão, parâmetros, log e tradução de erro) =====
+    // ===== A porta única: todo SQL passa por aqui (conexão, parâmetros, log, tempo e tradução de erro) =====
+    // O tempo conta desde pegar a conexão do pool até ler a última linha
     private T Run<T>(string sql, Dictionary<string, object?>? args, Func<DbCommand, T> action)
     {
-        logger.LogDebug("SQL: {Sql}", sql);
-
         bool ownConnection = transaction == null;
+        var watch = Stopwatch.StartNew();
 
         try
         {
@@ -285,11 +288,13 @@ public abstract class DriverBase : IOrm
                 Connect();
 
             using DbCommand cmd = CreateCommand(sql, args);
-            return action(cmd);
+            T result = action(cmd);
+            LogSql(sql, watch.Elapsed);
+            return result;
         }
         catch (DbException ex)
         {
-            throw Fail(ex, sql);
+            throw Fail(ex, sql, watch.Elapsed);
         }
         finally
         {
@@ -302,9 +307,8 @@ public abstract class DriverBase : IOrm
                                       Func<DbCommand, CancellationToken, Task<T>> action,
                                       CancellationToken ct)
     {
-        logger.LogDebug("SQL: {Sql}", sql);
-
         bool ownConnection = transaction == null;
+        var watch = Stopwatch.StartNew();
 
         try
         {
@@ -312,11 +316,13 @@ public abstract class DriverBase : IOrm
                 await ConnectAsync(ct);
 
             await using DbCommand cmd = CreateCommand(sql, args);
-            return await action(cmd, ct);
+            T result = await action(cmd, ct);
+            LogSql(sql, watch.Elapsed);
+            return result;
         }
         catch (DbException ex)
         {
-            throw Fail(ex, sql);
+            throw Fail(ex, sql, watch.Elapsed);
         }
         finally
         {
@@ -345,10 +351,24 @@ public abstract class DriverBase : IOrm
         return cmd;
     }
 
-    private OrmException Fail(DbException ex, string sql)
+    // Só o SQL vai para o log, nunca os valores dos parâmetros (podem ter dados pessoais)
+    private void LogSql(string sql, TimeSpan elapsed)
+    {
+        long ms = (long)elapsed.TotalMilliseconds;
+
+        // Lento sai como Warning: aparece em produção mesmo com o Debug desligado
+        if (elapsed >= slowQueryThreshold)
+            logger.LogWarning("SQL lento ({ElapsedMs} ms, limite {LimitMs} ms): {Sql}",
+                ms, (long)slowQueryThreshold.TotalMilliseconds, sql);
+        else
+            logger.LogDebug("SQL ({ElapsedMs} ms): {Sql}", ms, sql);
+    }
+
+    private OrmException Fail(DbException ex, string sql, TimeSpan elapsed)
     {
         OrmException error = TranslateError(ex);  // cada banco traduz seus códigos
-        logger.LogWarning(ex, "Falha no SQL ({Kind}): {Sql}", error.Kind, sql);
+        logger.LogWarning(ex, "Falha no SQL ({Kind}, {ElapsedMs} ms): {Sql}",
+            error.Kind, (long)elapsed.TotalMilliseconds, sql);
         return error;
     }
 

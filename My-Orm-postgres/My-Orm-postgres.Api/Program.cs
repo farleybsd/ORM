@@ -10,10 +10,16 @@ builder.Services.AddFastEndpoints();
 builder.Services.AddSwaggerDocumentation();
 
 // Uma sessão do ORM por requisição (mesma conexão/transação para todo o request)
-builder.Services.AddOrm(o => o.UsePostgres(
-    builder.Configuration.GetConnectionString("DefaultConnection")
-        ?? throw new InvalidOperationException(
-            "A connection string 'DefaultConnection' não foi encontrada. Confira o appsettings.json")));
+builder.Services.AddOrm(o =>
+{
+    o.UsePostgres(
+        builder.Configuration.GetConnectionString("DefaultConnection")
+            ?? throw new InvalidOperationException(
+                "A connection string 'DefaultConnection' não foi encontrada. Confira o appsettings.json"));
+
+    o.SlowQueryThreshold = TimeSpan.FromMilliseconds(
+        builder.Configuration.GetValue("Orm:SlowQueryThresholdMs", 500));
+});
 
 builder.Services.AddScoped<My_Orm_postgres.Api.Features.CriarCliente.Handler>();
 builder.Services.AddScoped<My_Orm_postgres.Api.Features.ConsultarCliente.Handler>();

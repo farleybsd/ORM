@@ -17,15 +17,19 @@ public sealed class Handler(IOrm db)
             Ativo = request.Ativo
         };
 
+        await db.BeginTransactionAsync(cancellationToken);
+
         try
         {
             await cliente.SaveAsync(db, cancellationToken);
         }
         catch (OrmException ex) when (ex.Kind == OrmErrorKind.Duplicate)
         {
+            await db.RollbackAsync();
             return ErrosDeCliente.EmailJaCadastrado(request.Email);
         }
 
+        await db.CommitAsync(cancellationToken);
         return Result.Success(Mapear(cliente));
     }
 

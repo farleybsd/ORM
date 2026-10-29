@@ -10,13 +10,22 @@ public sealed class Handler(IOrm db)
 {
     public async Task<Result<ClienteResponse>> HandleAsync(Request request, CancellationToken cancellationToken)
     {
+        // Load e Save na mesma transação: ou tudo é gravado, ou nada
+        await db.BeginTransactionAsync(cancellationToken);
+
         var cliente = new Cliente();
         if (!await cliente.LoadAsync(db, request.Id, cancellationToken))
+        {
+            await db.RollbackAsync();
             return ErrosDeCliente.ClienteNaoEncontrado(request.Id);
+        }
 
         // Quem enviou leu uma versão antiga: outro usuário alterou o cliente nesse meio-tempo
         if (cliente.UpdatedAt != request.Versao)
+        {
+            await db.RollbackAsync();
             return ErrosDeCliente.VersaoDesatualizada(request.Id);
+        }
 
         cliente.Nome = request.Nome;
         cliente.Email = request.Email;
@@ -29,14 +38,17 @@ public sealed class Handler(IOrm db)
         }
         catch (OrmException ex) when (ex.Kind == OrmErrorKind.Duplicate)
         {
+            await db.RollbackAsync();
             return ErrosDeCliente.EmailJaCadastrado(request.Email);
         }
         catch (OrmException ex) when (ex.Kind == OrmErrorKind.Concurrency)
         {
             // Alguém alterou entre o Load e o Save acima
+            await db.RollbackAsync();
             return ErrosDeCliente.VersaoDesatualizada(request.Id);
         }
 
+        await db.CommitAsync(cancellationToken);
         return Result.Success(CriarCliente.Handler.Mapear(cliente));
     }
 }

@@ -1,10 +1,12 @@
-using My_Orm_Data_Access.Core;
+﻿using My_Orm_Data_Access.Core;
 
 var builder = WebApplication.CreateBuilder(args);
 
-ConfiguracaoOrm.Load(builder.Configuration); // entrega o appsettings para o ORM
-
 // Add services to the container.
+builder.Services.AddOrm(o => o.UsePostgres(
+    builder.Configuration.GetConnectionString("DefaultConnection")
+        ?? throw new InvalidOperationException(
+            "A connection string 'DefaultConnection' não foi encontrada. Confira o appsettings.json")));
 
 var app = builder.Build();
 

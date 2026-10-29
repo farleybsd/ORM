@@ -35,10 +35,9 @@ namespace My_Orm_Data_Access.Models
                 .Where(p => p.CanRead && p.CanWrite);
         }
 
-        public bool Load(long id)
+        public bool Load(IOrm db, long id)
         {
-            using var orm = new Orm();
-            DataTable dt = orm.Select(TableName, "*", "id = @id", new() { ["id"] = id });
+            DataTable dt = db.Select(TableName, "*", "id = @id", new() { ["id"] = id });
 
             if (dt.Rows.Count == 0)
                 return false;
@@ -48,12 +47,11 @@ namespace My_Orm_Data_Access.Models
             return true;
         }
 
-        public bool LoadQuery(string sql, Dictionary<string, object?>? args = null)
+        public bool LoadQuery(IOrm db, string sql, Dictionary<string, object?>? args = null)
         {
-            using var orm = new Orm();
-            orm.Exec(sql, "query", args);
+            db.Exec(sql, "query", args);
 
-            DataTable dt = orm.GetDataTable();
+            DataTable dt = db.GetDataTable();
             if (dt.Rows.Count == 0)
                 return false;
 
@@ -62,7 +60,7 @@ namespace My_Orm_Data_Access.Models
             return true;
         }
 
-        public bool Save()
+        public bool Save(IOrm db)
         {
             var data = new Dictionary<string, object?>();
 
@@ -88,15 +86,14 @@ namespace My_Orm_Data_Access.Models
                 return false;
 
             long now = Math.Max(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), UpdatedAt + 1);
-            using var orm = new Orm();
 
             if (Id == 0)
             {
                 data["inserted_at"] = now;
                 data["updated_at"] = now;
-                orm.Insert(TableName, data);
+                db.Insert(TableName, data);
 
-                Id = orm.GetGeneratedId();
+                Id = db.GetGeneratedId();
                 InsertedAt = now;
                 UpdatedAt = now;
             }
@@ -104,11 +101,11 @@ namespace My_Orm_Data_Access.Models
             {
                 data["updated_at"] = now;
 
-                orm.Update(TableName, data,
+                db.Update(TableName, data,
                     "id = @id AND updated_at = @old_updated_at",
                     new() { ["id"] = Id, ["old_updated_at"] = UpdatedAt });
 
-                if (orm.GetRowsAffected() == 0)
+                if (db.GetRowsAffected() == 0)
                     throw new OrmException(OrmErrorKind.Concurrency,
                         "Este registro foi alterado ou excluído por outro usuário. " +
                         "Recarregue os dados e tente novamente.");
@@ -120,13 +117,12 @@ namespace My_Orm_Data_Access.Models
             return true;
         }
 
-        public void Delete()
+        public void Delete(IOrm db)
         {
             if (Id == 0)
                 throw new InvalidOperationException("Não dá para apagar um registro que nunca foi gravado.");
 
-            using var orm = new Orm();
-            orm.Delete(TableName, "id = @id", new() { ["id"] = Id });
+            db.Delete(TableName, "id = @id", new() { ["id"] = Id });
             Id = 0;
             snapshot.Clear();
         }

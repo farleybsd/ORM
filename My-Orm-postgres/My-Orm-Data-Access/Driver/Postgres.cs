@@ -7,9 +7,9 @@ public class Postgres : DriverBase
 { 
     private readonly string connectionString;
 
-    public Postgres()
+    public Postgres(string connectionString)
     {
-        connectionString = ConfiguracaoOrm.GetConnectionString();
+        this.connectionString = connectionString;
     }
 
     protected override DbConnection CreateConnection()

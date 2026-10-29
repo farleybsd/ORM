@@ -14,3 +14,15 @@ public class TableAttribute : Attribute
         Name = name;
     }
 }
+
+// Nome de coluna explícito, para quando a convenção (snake_case da propriedade) não serve
+[AttributeUsage(AttributeTargets.Property)]
+public class ColumnAttribute : Attribute
+{
+    public string Name { get; }
+
+    public ColumnAttribute(string name)
+    {
+        Name = name;
+    }
+}

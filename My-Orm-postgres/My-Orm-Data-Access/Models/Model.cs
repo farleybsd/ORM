@@ -1,6 +1,6 @@
 ﻿using My_Orm_Data_Access.Core;
+using My_Orm_Data_Access.Mapping;
 using System.Data;
-using System.Reflection;
 
 namespace My_Orm_Data_Access.Models
 {
@@ -12,28 +12,13 @@ namespace My_Orm_Data_Access.Models
 
         private readonly Dictionary<string, object?> snapshot = new();
 
-        protected virtual string TableName
-        {
-            get
-            {
-                var table = GetType().GetCustomAttribute<TableAttribute>();
-                if (table != null)
-                    return table.Name;
+        // Metadados da classe (tabela, colunas, atributos): calculados uma vez por tipo
+        private EntityMetadata Meta => EntityMetadata.For(GetType());
 
-                string name = GetType().Name;
-                if (name.EndsWith("Model"))
-                    name = name[..^5];
+        protected virtual string TableName => Meta.TableName;
 
-                return Naming.ToSnake(name);
-            }
-        }
-
-        protected IEnumerable<PropertyInfo> Columns()
-        {
-            return GetType()
-                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                .Where(p => p.CanRead && p.CanWrite);
-        }
+        // Colunas que o Model lê e grava (propriedades com get e set públicos)
+        private IEnumerable<ColumnMap> Columns() => Meta.Columns.Where(c => c.CanWrite);
 
         // ===== Carregar =====
         public bool Load(IOrm db, long id)
@@ -134,22 +119,20 @@ namespace My_Orm_Data_Access.Models
         {
             var data = new Dictionary<string, object?>();
 
-            foreach (PropertyInfo prop in Columns())
+            foreach (ColumnMap column in Columns())
             {
-                string column = Naming.ToSnake(prop.Name);
-
-                if (column is "id" or "inserted_at" or "updated_at")
+                if (column.Name is "id" or "inserted_at" or "updated_at")
                     continue;
 
-                if (prop.GetCustomAttribute<CalcFieldAttribute>() != null)
+                if (column.IsCalc)
                     continue;
 
-                object? value = prop.GetValue(this);
+                object? value = column.Property.GetValue(this);
 
-                if (Id != 0 && snapshot.TryGetValue(column, out object? old) && Equals(old, value))
+                if (Id != 0 && snapshot.TryGetValue(column.Name, out object? old) && Equals(old, value))
                     continue;
 
-                data[column] = value;
+                data[column.Name] = ValueConverter.ToDb(value);
             }
 
             return data;
@@ -187,32 +170,25 @@ namespace My_Orm_Data_Access.Models
 
         protected void Fill(DataRow row)
         {
-            foreach (PropertyInfo prop in Columns())
+            foreach (ColumnMap column in Columns())
             {
-                string column = Naming.ToSnake(prop.Name);
-
-                if (!row.Table.Columns.Contains(column))
+                if (!row.Table.Columns.Contains(column.Name))
                     continue;
 
-                object value = row[column];
-
-                if (value == DBNull.Value)
-                {
-                    prop.SetValue(this, null);
-                    continue;
-                }
-
-                Type target = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
-                prop.SetValue(this, Convert.ChangeType(value, target));
+                column.Property.SetValue(this,
+                    ValueConverter.FromDb(row[column.Name], column.Property.PropertyType));
             }
         }
+
+        // Chamado pelo Query<T> depois de preencher o objeto
+        internal void MarkLoaded() => TakeSnapshot();
 
         private void TakeSnapshot()
         {
             snapshot.Clear();
 
-            foreach (PropertyInfo prop in Columns())
-                snapshot[Naming.ToSnake(prop.Name)] = prop.GetValue(this);
+            foreach (ColumnMap column in Columns())
+                snapshot[column.Name] = column.Property.GetValue(this);
         }
     }
 }

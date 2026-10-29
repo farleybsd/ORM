@@ -10,6 +10,16 @@ public interface IOrm : IDisposable, IAsyncDisposable
     Task<DataTable> QueryAsync(string sql, Dictionary<string, object?>? args = null,
                                CancellationToken ct = default);
 
+    // SQL livre direto para objetos: T pode ser um Model, um DTO/record ou um tipo simples (long, string...)
+    List<T> Query<T>(string sql, Dictionary<string, object?>? args = null);
+    Task<List<T>> QueryAsync<T>(string sql, Dictionary<string, object?>? args = null,
+                                CancellationToken ct = default);
+
+    // Só a primeira linha (default/null se não vier nenhuma). Use LIMIT 1 no SQL quando fizer sentido
+    T? QueryFirst<T>(string sql, Dictionary<string, object?>? args = null);
+    Task<T?> QueryFirstAsync<T>(string sql, Dictionary<string, object?>? args = null,
+                                CancellationToken ct = default);
+
     long Execute(string sql, Dictionary<string, object?>? args = null);
     Task<long> ExecuteAsync(string sql, Dictionary<string, object?>? args = null,
                             CancellationToken ct = default);

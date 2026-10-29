@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using My_Orm_Data_Access.Core;
+using My_Orm_Data_Access.Mapping;
 using System.Data;
 using System.Data.Common;
 
@@ -94,6 +95,52 @@ public abstract class DriverBase : IOrm
             while (await reader.ReadAsync(c))
                 AddRow(table, reader);
             return table;
+        }, ct);
+    }
+
+    public List<T> Query<T>(string sql, Dictionary<string, object?>? args = null)
+    {
+        return Run(sql, args, cmd =>
+        {
+            using var reader = cmd.ExecuteReader();
+            var map = RowMapper.Create<T>(reader);
+            var list = new List<T>();
+            while (reader.Read())
+                list.Add(map(reader));
+            return list;
+        });
+    }
+
+    public Task<List<T>> QueryAsync<T>(string sql, Dictionary<string, object?>? args = null,
+                                       CancellationToken ct = default)
+    {
+        return RunAsync(sql, args, async (cmd, c) =>
+        {
+            await using var reader = await cmd.ExecuteReaderAsync(c);
+            var map = RowMapper.Create<T>(reader);
+            var list = new List<T>();
+            while (await reader.ReadAsync(c))
+                list.Add(map(reader));
+            return list;
+        }, ct);
+    }
+
+    public T? QueryFirst<T>(string sql, Dictionary<string, object?>? args = null)
+    {
+        return Run(sql, args, cmd =>
+        {
+            using var reader = cmd.ExecuteReader();
+            return reader.Read() ? RowMapper.Create<T>(reader)(reader) : default;
+        });
+    }
+
+    public Task<T?> QueryFirstAsync<T>(string sql, Dictionary<string, object?>? args = null,
+                                       CancellationToken ct = default)
+    {
+        return RunAsync(sql, args, async (cmd, c) =>
+        {
+            await using var reader = await cmd.ExecuteReaderAsync(c);
+            return await reader.ReadAsync(c) ? RowMapper.Create<T>(reader)(reader) : default;
         }, ct);
     }
 

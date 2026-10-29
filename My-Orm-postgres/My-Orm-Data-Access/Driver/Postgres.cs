@@ -23,10 +23,18 @@ public class Postgres : DriverBase
     protected override long ExecuteInsert(DbCommand cmd)
     {
         using var reader = cmd.ExecuteReader();
-        if (!reader.Read())
-            return 0;
+        return reader.Read() ? ReadId(reader) : 0;
+    }
 
-        // RETURNING * devolve a linha inteira: procura a coluna "id", se existir
+    protected override async Task<long> ExecuteInsertAsync(DbCommand cmd, CancellationToken ct)
+    {
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        return await reader.ReadAsync(ct) ? ReadId(reader) : 0;
+    }
+
+    // RETURNING * devolve a linha inteira: procura a coluna "id", se existir
+    private static long ReadId(DbDataReader reader)
+    {
         for (int i = 0; i < reader.FieldCount; i++)
             if (reader.GetName(i) == "id" && !reader.IsDBNull(i))
                 return Convert.ToInt64(reader.GetValue(i));

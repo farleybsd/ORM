@@ -35,30 +35,102 @@ namespace My_Orm_Data_Access.Models
                 .Where(p => p.CanRead && p.CanWrite);
         }
 
+        // ===== Carregar =====
         public bool Load(IOrm db, long id)
-        {
-            DataTable dt = db.Select(TableName, "*", "id = @id", new() { ["id"] = id });
+            => FillFirst(db.Select(TableName, "*", "id = @id", IdArgs(id)));
 
-            if (dt.Rows.Count == 0)
-                return false;
-
-            Fill(dt.Rows[0]);
-            TakeSnapshot();
-            return true;
-        }
+        public async Task<bool> LoadAsync(IOrm db, long id, CancellationToken ct = default)
+            => FillFirst(await db.SelectAsync(TableName, "*", "id = @id", IdArgs(id), ct: ct));
 
         public bool LoadQuery(IOrm db, string sql, Dictionary<string, object?>? args = null)
+            => FillFirst(db.Query(sql, args));
+
+        public async Task<bool> LoadQueryAsync(IOrm db, string sql, Dictionary<string, object?>? args = null,
+                                               CancellationToken ct = default)
+            => FillFirst(await db.QueryAsync(sql, args, ct));
+
+        // ===== Gravar =====
+        public bool Save(IOrm db)
         {
-            DataTable dt = db.Query(sql, args);
-            if (dt.Rows.Count == 0)
+            var data = ChangedColumns();
+            if (Id != 0 && data.Count == 0)
                 return false;
 
-            Fill(dt.Rows[0]);
+            long now = NextTimestamp();
+            data["updated_at"] = now;
+
+            if (Id == 0)
+            {
+                data["inserted_at"] = now;
+                Id = db.Insert(TableName, data);
+                InsertedAt = now;
+            }
+            else
+            {
+                EnsureUpdated(db.Update(TableName, data, VersionWhere, VersionArgs()));
+            }
+
+            UpdatedAt = now;
             TakeSnapshot();
             return true;
         }
 
-        public bool Save(IOrm db)
+        public async Task<bool> SaveAsync(IOrm db, CancellationToken ct = default)
+        {
+            var data = ChangedColumns();
+            if (Id != 0 && data.Count == 0)
+                return false;
+
+            long now = NextTimestamp();
+            data["updated_at"] = now;
+
+            if (Id == 0)
+            {
+                data["inserted_at"] = now;
+                Id = await db.InsertAsync(TableName, data, ct);
+                InsertedAt = now;
+            }
+            else
+            {
+                EnsureUpdated(await db.UpdateAsync(TableName, data, VersionWhere, VersionArgs(), ct));
+            }
+
+            UpdatedAt = now;
+            TakeSnapshot();
+            return true;
+        }
+
+        // ===== Apagar =====
+        public void Delete(IOrm db)
+        {
+            EnsureSaved();
+            db.Delete(TableName, "id = @id", IdArgs(Id));
+            Forget();
+        }
+
+        public async Task DeleteAsync(IOrm db, CancellationToken ct = default)
+        {
+            EnsureSaved();
+            await db.DeleteAsync(TableName, "id = @id", IdArgs(Id), ct);
+            Forget();
+        }
+
+        // ===== Peças comuns às versões síncrona e Async =====
+
+        // Concorrência otimista: só atualiza se ninguém mexeu desde que carregamos
+        private const string VersionWhere = "id = @id AND updated_at = @old_updated_at";
+
+        private Dictionary<string, object?> VersionArgs()
+            => new() { ["id"] = Id, ["old_updated_at"] = UpdatedAt };
+
+        private static Dictionary<string, object?> IdArgs(long id)
+            => new() { ["id"] = id };
+
+        private long NextTimestamp()
+            => Math.Max(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), UpdatedAt + 1);
+
+        // Colunas que vão para o banco: no insert todas, no update só as que mudaram
+        private Dictionary<string, object?> ChangedColumns()
         {
             var data = new Dictionary<string, object?>();
 
@@ -80,47 +152,37 @@ namespace My_Orm_Data_Access.Models
                 data[column] = value;
             }
 
-            if (Id != 0 && data.Count == 0)
-                return false;
-
-            long now = Math.Max(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), UpdatedAt + 1);
-
-            if (Id == 0)
-            {
-                data["inserted_at"] = now;
-                data["updated_at"] = now;
-                Id = db.Insert(TableName, data);
-                InsertedAt = now;
-                UpdatedAt = now;
-            }
-            else
-            {
-                data["updated_at"] = now;
-
-                long rows = db.Update(TableName, data,
-                    "id = @id AND updated_at = @old_updated_at",
-                    new() { ["id"] = Id, ["old_updated_at"] = UpdatedAt });
-
-                if (rows == 0)
-                    throw new OrmException(OrmErrorKind.Concurrency,
-                        "Este registro foi alterado ou excluído por outro usuário. " +
-                        "Recarregue os dados e tente novamente.");
-
-                UpdatedAt = now;
-            }
-
-            TakeSnapshot();
-            return true;
+            return data;
         }
 
-        public void Delete(IOrm db)
+        private static void EnsureUpdated(long rows)
+        {
+            if (rows == 0)
+                throw new OrmException(OrmErrorKind.Concurrency,
+                    "Este registro foi alterado ou excluído por outro usuário. " +
+                    "Recarregue os dados e tente novamente.");
+        }
+
+        private void EnsureSaved()
         {
             if (Id == 0)
                 throw new InvalidOperationException("Não dá para apagar um registro que nunca foi gravado.");
+        }
 
-            db.Delete(TableName, "id = @id", new() { ["id"] = Id });
+        private void Forget()
+        {
             Id = 0;
             snapshot.Clear();
+        }
+
+        private bool FillFirst(DataTable dt)
+        {
+            if (dt.Rows.Count == 0)
+                return false;
+
+            Fill(dt.Rows[0]);
+            TakeSnapshot();
+            return true;
         }
 
         protected void Fill(DataRow row)

@@ -22,23 +22,34 @@ public abstract class DriverBase : IOrm
     protected abstract DbConnection CreateConnection();
     protected abstract string InsertSql(string table, string fields, string values);
     protected abstract long ExecuteInsert(DbCommand cmd);   // executa o INSERT e devolve o id gerado
+    protected abstract Task<long> ExecuteInsertAsync(DbCommand cmd, CancellationToken ct);
     protected abstract OrmException TranslateError(DbException ex);
 
+    // ===== Transação =====
     public void BeginTransaction()
     {
-        if (transaction != null)
-            throw new InvalidOperationException("Já existe uma transação aberta.");
-
+        EnsureNoTransaction();
         Connect();
         transaction = connection!.BeginTransaction();
     }
 
+    public async Task BeginTransactionAsync(CancellationToken ct = default)
+    {
+        EnsureNoTransaction();
+        await ConnectAsync(ct);
+        transaction = await connection!.BeginTransactionAsync(ct);
+    }
+
     public void Commit()
     {
-        if (transaction == null)
-            throw new InvalidOperationException("Nenhuma transação aberta para confirmar.");
-        transaction.Commit();
+        EnsureTransaction().Commit();
         EndTransaction();
+    }
+
+    public async Task CommitAsync(CancellationToken ct = default)
+    {
+        await EnsureTransaction().CommitAsync(ct);
+        await EndTransactionAsync();
     }
 
     public void Rollback()
@@ -50,37 +61,119 @@ public abstract class DriverBase : IOrm
         EndTransaction();
     }
 
+    public async Task RollbackAsync(CancellationToken ct = default)
+    {
+        if (transaction == null)
+            return;
+
+        await transaction.RollbackAsync(ct);
+        await EndTransactionAsync();
+    }
+
+    // ===== SQL livre =====
     public DataTable Query(string sql, Dictionary<string, object?>? args = null)
     {
         return Run(sql, args, cmd =>
         {
-            var table = new DataTable();
-            using (var reader = cmd.ExecuteReader())
-                table.Load(reader);
+            using var reader = cmd.ExecuteReader();
+            var table = CreateTable(reader);
+            while (reader.Read())
+                AddRow(table, reader);
             return table;
         });
+    }
+
+    public Task<DataTable> QueryAsync(string sql, Dictionary<string, object?>? args = null,
+                                      CancellationToken ct = default)
+    {
+        return RunAsync(sql, args, async (cmd, c) =>
+        {
+            await using var reader = await cmd.ExecuteReaderAsync(c);
+            var table = CreateTable(reader);
+            while (await reader.ReadAsync(c))
+                AddRow(table, reader);
+            return table;
+        }, ct);
     }
 
     public long Execute(string sql, Dictionary<string, object?>? args = null)
         => Run(sql, args, cmd => (long)cmd.ExecuteNonQuery());
 
+    public Task<long> ExecuteAsync(string sql, Dictionary<string, object?>? args = null,
+                                   CancellationToken ct = default)
+        => RunAsync(sql, args, async (cmd, c) => (long)await cmd.ExecuteNonQueryAsync(c), ct);
+
+    // ===== CRUD =====
     public DataTable Select(string table, string fields = "*", string where = "", Dictionary<string, object?>? args = null, string order = "")
+        => Query(SelectSql(table, fields, where, order), args);
+
+    public Task<DataTable> SelectAsync(string table, string fields = "*", string where = "",
+                                       Dictionary<string, object?>? args = null, string order = "",
+                                       CancellationToken ct = default)
+        => QueryAsync(SelectSql(table, fields, where, order), args, ct);
+
+    public long Insert(string table, Dictionary<string, object?> data)
+        => Run(InsertSql(table, data), data, ExecuteInsert);
+
+    public Task<long> InsertAsync(string table, Dictionary<string, object?> data,
+                                  CancellationToken ct = default)
+        => RunAsync(InsertSql(table, data), data, ExecuteInsertAsync, ct);
+
+    public long Update(string table, Dictionary<string, object?> data, string where, Dictionary<string, object?>? args = null)
+    {
+        var (sql, parameters) = UpdateSql(table, data, where, args);
+        return Execute(sql, parameters);
+    }
+
+    public Task<long> UpdateAsync(string table, Dictionary<string, object?> data, string where,
+                                  Dictionary<string, object?>? args = null, CancellationToken ct = default)
+    {
+        var (sql, parameters) = UpdateSql(table, data, where, args);
+        return ExecuteAsync(sql, parameters, ct);
+    }
+
+    public long Delete(string table, string where, Dictionary<string, object?>? args = null)
+        => Execute(DeleteSql(table, where), args);
+
+    public Task<long> DeleteAsync(string table, string where, Dictionary<string, object?>? args = null,
+                                  CancellationToken ct = default)
+        => ExecuteAsync(DeleteSql(table, where), args, ct);
+
+    // ===== Fim da sessão: o que não teve Commit é desfeito =====
+    public void Dispose()
+    {
+        try { Rollback(); }
+        catch { /* conexão já caída: o banco desfaz sozinho */ }
+
+        Disconnect();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await RollbackAsync(); }
+        catch { /* conexão já caída: o banco desfaz sozinho */ }
+
+        await DisconnectAsync();
+    }
+
+    // ===== Montagem do SQL (igual para as versões síncrona e Async) =====
+    private static string SelectSql(string table, string fields, string where, string order)
     {
         string sql = $"SELECT {fields} FROM {table}";
         if (where != "") sql += $" WHERE {where}";
         if (order != "") sql += $" ORDER BY {order}";
-
-        return Query(sql, args);
+        return sql;
     }
 
-    public long Insert(string table, Dictionary<string, object?> data)
+    private string InsertSql(string table, Dictionary<string, object?> data)
     {
         string fields = string.Join(", ", data.Keys);
         string values = string.Join(", ", data.Keys.Select(k => "@" + k));
-        return Run(InsertSql(table, fields, values), data, ExecuteInsert);
+        return InsertSql(table, fields, values);
     }
 
-    public long Update(string table, Dictionary<string, object?> data, string where, Dictionary<string, object?>? args = null)
+    private static (string sql, Dictionary<string, object?> parameters) UpdateSql(
+        string table, Dictionary<string, object?> data, string where, Dictionary<string, object?>? args)
     {
         if (string.IsNullOrWhiteSpace(where))
             throw new InvalidOperationException("Update sem WHERE bloqueado.");
@@ -94,26 +187,18 @@ public abstract class DriverBase : IOrm
             parameters["v_" + column] = value;
         }
 
-        return Execute($"UPDATE {table} SET {string.Join(", ", sets)} WHERE {where}", parameters);
+        return ($"UPDATE {table} SET {string.Join(", ", sets)} WHERE {where}", parameters);
     }
 
-    public long Delete(string table, string where, Dictionary<string, object?>? args = null)
+    private static string DeleteSql(string table, string where)
     {
         if (string.IsNullOrWhiteSpace(where))
             throw new InvalidOperationException("Delete sem WHERE bloqueado.");
 
-        return Execute($"DELETE FROM {table} WHERE {where}", args);
+        return $"DELETE FROM {table} WHERE {where}";
     }
 
-    public void Dispose()
-    {
-        try { Rollback(); }
-        catch { /* conexão já caída: o banco desfaz sozinho */ }
-
-        Disconnect();
-    }
-
-    // A porta única: todo SQL passa por aqui (conexão, parâmetros, log e tradução de erro)
+    // ===== A porta única: todo SQL passa por aqui (conexão, parâmetros, log e tradução de erro) =====
     private T Run<T>(string sql, Dictionary<string, object?>? args, Func<DbCommand, T> action)
     {
         logger.LogDebug("SQL: {Sql}", sql);
@@ -125,28 +210,12 @@ public abstract class DriverBase : IOrm
             if (ownConnection) // Conexão própria
                 Connect();
 
-            using DbCommand cmd = connection!.CreateCommand();
-            cmd.CommandText = sql;
-            cmd.Transaction = transaction;
-
-            if (args != null) // Verifca se ha parametros para adicionar
-            {
-                foreach (var (name, value) in args)
-                {
-                    DbParameter p = cmd.CreateParameter();
-                    p.ParameterName = "@" + name;
-                    p.Value = value ?? DBNull.Value;
-                    cmd.Parameters.Add(p);
-                }
-            }
-
+            using DbCommand cmd = CreateCommand(sql, args);
             return action(cmd);
         }
         catch (DbException ex)
         {
-            OrmException error = TranslateError(ex);  // cada banco traduz seus códigos
-            logger.LogWarning(ex, "Falha no SQL ({Kind}): {Sql}", error.Kind, sql);
-            throw error;
+            throw Fail(ex, sql);
         }
         finally
         {
@@ -155,10 +224,109 @@ public abstract class DriverBase : IOrm
         }
     }
 
+    private async Task<T> RunAsync<T>(string sql, Dictionary<string, object?>? args,
+                                      Func<DbCommand, CancellationToken, Task<T>> action,
+                                      CancellationToken ct)
+    {
+        logger.LogDebug("SQL: {Sql}", sql);
+
+        bool ownConnection = transaction == null;
+
+        try
+        {
+            if (ownConnection) // Conexão própria
+                await ConnectAsync(ct);
+
+            await using DbCommand cmd = CreateCommand(sql, args);
+            return await action(cmd, ct);
+        }
+        catch (DbException ex)
+        {
+            throw Fail(ex, sql);
+        }
+        finally
+        {
+            if (ownConnection)
+                await DisconnectAsync();
+        }
+    }
+
+    private DbCommand CreateCommand(string sql, Dictionary<string, object?>? args)
+    {
+        DbCommand cmd = connection!.CreateCommand();
+        cmd.CommandText = sql;
+        cmd.Transaction = transaction;
+
+        if (args != null) // Verifca se ha parametros para adicionar
+        {
+            foreach (var (name, value) in args)
+            {
+                DbParameter p = cmd.CreateParameter();
+                p.ParameterName = "@" + name;
+                p.Value = value ?? DBNull.Value;
+                cmd.Parameters.Add(p);
+            }
+        }
+
+        return cmd;
+    }
+
+    private OrmException Fail(DbException ex, string sql)
+    {
+        OrmException error = TranslateError(ex);  // cada banco traduz seus códigos
+        logger.LogWarning(ex, "Falha no SQL ({Kind}): {Sql}", error.Kind, sql);
+        return error;
+    }
+
+    // ===== Leitura das linhas (o DataTable.Load só existe na versão síncrona) =====
+    private static DataTable CreateTable(DbDataReader reader)
+    {
+        var table = new DataTable();
+
+        for (int i = 0; i < reader.FieldCount; i++)
+        {
+            // Em JOINs a mesma coluna pode vir duas vezes (ex.: "id"): a segunda vira "id1"
+            string name = reader.GetName(i);
+            string unique = name;
+            for (int n = 1; table.Columns.Contains(unique); n++)
+                unique = $"{name}{n}";
+
+            table.Columns.Add(unique, reader.GetFieldType(i));
+        }
+
+        return table;
+    }
+
+    private static void AddRow(DataTable table, DbDataReader reader)
+    {
+        var values = new object[reader.FieldCount];
+        reader.GetValues(values);
+        table.Rows.Add(values);
+    }
+
+    // ===== Conexão e transação =====
+    private void EnsureNoTransaction()
+    {
+        if (transaction != null)
+            throw new InvalidOperationException("Já existe uma transação aberta.");
+    }
+
+    private DbTransaction EnsureTransaction()
+    {
+        return transaction
+            ?? throw new InvalidOperationException("Nenhuma transação aberta para confirmar.");
+    }
+
     private void Connect()
     {
         connection = CreateConnection();
         connection.Open();
+    }
+
+    private async Task ConnectAsync(CancellationToken ct)
+    {
+        connection = CreateConnection();
+        await connection.OpenAsync(ct);
     }
 
     private void EndTransaction()
@@ -168,9 +336,24 @@ public abstract class DriverBase : IOrm
         Disconnect();
     }
 
+    private async Task EndTransactionAsync()
+    {
+        if (transaction != null)
+            await transaction.DisposeAsync();
+        transaction = null;
+        await DisconnectAsync();
+    }
+
     private void Disconnect()
     {
         connection?.Dispose();
+        connection = null;
+    }
+
+    private async Task DisconnectAsync()
+    {
+        if (connection != null)
+            await connection.DisposeAsync();
         connection = null;
     }
 }

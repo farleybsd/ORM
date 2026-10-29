@@ -6,4 +6,5 @@
   <Folder Name="/tests/">
     <Project Path="My-Orm-postgres.Tests/My-Orm-postgres.Tests.csproj" />
   </Folder>
+  <Project Path="My-Orm-postgres.AppHost/My-Orm-postgres.AppHost.csproj" />
 </Solution>

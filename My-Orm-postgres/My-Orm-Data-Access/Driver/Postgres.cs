@@ -20,6 +20,10 @@ public class Postgres : DriverBase
     protected override string InsertSql(string table, string fields, string values)
      => $"INSERT INTO {table} ({fields}) VALUES ({values}) RETURNING *";
 
+    // Postgres usa aspas duplas; uma aspa dentro do nome vira duas para não "fechar" o nome
+    protected override string QuoteIdentifier(string name)
+     => "\"" + name.Replace("\"", "\"\"") + "\"";
+
     protected override long ExecuteInsert(DbCommand cmd)
     {
         using var reader = cmd.ExecuteReader();

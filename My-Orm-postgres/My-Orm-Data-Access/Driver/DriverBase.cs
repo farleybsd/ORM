@@ -24,6 +24,7 @@ public abstract class DriverBase : IOrm
     protected abstract long ExecuteInsert(DbCommand cmd);   // executa o INSERT e devolve o id gerado
     protected abstract Task<long> ExecuteInsertAsync(DbCommand cmd, CancellationToken ct);
     protected abstract OrmException TranslateError(DbException ex);
+    protected abstract string QuoteIdentifier(string name); // cada banco usa suas aspas: "x", [x], `x`
 
     // ===== Transação =====
     public void BeginTransaction()
@@ -157,9 +158,11 @@ public abstract class DriverBase : IOrm
     }
 
     // ===== Montagem do SQL (igual para as versões síncrona e Async) =====
-    private static string SelectSql(string table, string fields, string where, string order)
+    // Nomes de tabela e coluna sempre passam por Table()/Column(): validados e entre aspas.
+    // fields, where e order continuam SQL livre: valores ali devem ir sempre por parâmetro.
+    private string SelectSql(string table, string fields, string where, string order)
     {
-        string sql = $"SELECT {fields} FROM {table}";
+        string sql = $"SELECT {fields} FROM {Table(table)}";
         if (where != "") sql += $" WHERE {where}";
         if (order != "") sql += $" ORDER BY {order}";
         return sql;
@@ -167,12 +170,12 @@ public abstract class DriverBase : IOrm
 
     private string InsertSql(string table, Dictionary<string, object?> data)
     {
-        string fields = string.Join(", ", data.Keys);
+        string fields = string.Join(", ", data.Keys.Select(Column));
         string values = string.Join(", ", data.Keys.Select(k => "@" + k));
-        return InsertSql(table, fields, values);
+        return InsertSql(Table(table), fields, values);
     }
 
-    private static (string sql, Dictionary<string, object?> parameters) UpdateSql(
+    private (string sql, Dictionary<string, object?> parameters) UpdateSql(
         string table, Dictionary<string, object?> data, string where, Dictionary<string, object?>? args)
     {
         if (string.IsNullOrWhiteSpace(where))
@@ -183,19 +186,43 @@ public abstract class DriverBase : IOrm
 
         foreach (var (column, value) in data)
         {
-            sets.Add($"{column} = @v_{column}");
+            sets.Add($"{Column(column)} = @v_{column}");
             parameters["v_" + column] = value;
         }
 
-        return ($"UPDATE {table} SET {string.Join(", ", sets)} WHERE {where}", parameters);
+        return ($"UPDATE {Table(table)} SET {string.Join(", ", sets)} WHERE {where}", parameters);
     }
 
-    private static string DeleteSql(string table, string where)
+    private string DeleteSql(string table, string where)
     {
         if (string.IsNullOrWhiteSpace(where))
             throw new InvalidOperationException("Delete sem WHERE bloqueado.");
 
-        return $"DELETE FROM {table} WHERE {where}";
+        return $"DELETE FROM {Table(table)} WHERE {where}";
+    }
+
+    // ===== Quoting de identificadores =====
+
+    // Aceita "cliente" ou "schema.cliente": cada parte é validada e posta entre aspas
+    private string Table(string name)
+        => string.Join(".", name.Split('.').Select(part => QuoteIdentifier(ValidName(part, "tabela"))));
+
+    // A coluna também vira nome de parâmetro (@coluna), por isso a validação é a mesma
+    private string Column(string name)
+        => QuoteIdentifier(ValidName(name, "coluna"));
+
+    // Só letras, números e "_", sem começar com número: barra ";", ")", "--", espaço etc.
+    private static string ValidName(string name, string kind)
+    {
+        bool valid = name.Length > 0
+            && !char.IsDigit(name[0])
+            && name.All(c => char.IsLetterOrDigit(c) || c == '_');
+
+        if (!valid)
+            throw new ArgumentException(
+                $"Nome de {kind} inválido: '{name}'. Use só letras, números e '_' (sem começar com número).");
+
+        return name;
     }
 
     // ===== A porta única: todo SQL passa por aqui (conexão, parâmetros, log e tradução de erro) =====
